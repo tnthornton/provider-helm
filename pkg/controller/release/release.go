@@ -31,10 +31,11 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	ktype "sigs.k8s.io/kustomize/api/types"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"github.com/crossplane/crossplane-runtime/pkg/connection"
+	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/crossplane-runtime/pkg/meta"
@@ -42,15 +43,15 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 
 	"github.com/crossplane-contrib/provider-helm/apis/release/v1beta1"
+	scv1alpha1 "github.com/crossplane-contrib/provider-helm/apis/v1alpha1"
 	helmv1beta1 "github.com/crossplane-contrib/provider-helm/apis/v1beta1"
 	"github.com/crossplane-contrib/provider-helm/pkg/clients"
 	"github.com/crossplane-contrib/provider-helm/pkg/clients/gke"
 	helmClient "github.com/crossplane-contrib/provider-helm/pkg/clients/helm"
+	"github.com/crossplane-contrib/provider-helm/pkg/features"
 )
 
 const (
-	maxConcurrency = 10
-
 	resyncPeriod     = 10 * time.Minute
 	reconcileTimeout = 10 * time.Minute
 
@@ -88,9 +89,14 @@ const (
 )
 
 // Setup adds a controller that reconciles Release managed resources.
-func Setup(mgr ctrl.Manager, l logging.Logger) error {
+func Setup(mgr ctrl.Manager, o controller.Options) error {
 	name := managed.ControllerName(v1beta1.ReleaseGroupKind)
-	logger := l.WithValues("controller", name)
+	logger := o.Logger.WithValues("controller", name)
+
+	cps := []managed.ConnectionPublisher{managed.NewAPISecretPublisher(mgr.GetClient(), mgr.GetScheme())}
+	if o.Features.Enabled(features.EnableAlphaExternalSecretStores) {
+		cps = append(cps, connection.NewDetailsManager(mgr.GetClient(), scv1alpha1.StoreConfigGroupVersionKind))
+	}
 
 	r := managed.NewReconciler(mgr,
 		resource.ManagedKind(v1beta1.ReleaseGroupVersionKind),
@@ -108,12 +114,14 @@ func Setup(mgr ctrl.Manager, l logging.Logger) error {
 		managed.WithLogger(logger),
 		managed.WithTimeout(reconcileTimeout),
 		managed.WithPollInterval(resyncPeriod),
-		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))))
+		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
+		managed.WithConnectionPublishers(cps...),
+	)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&v1beta1.Release{}).
-		WithOptions(controller.Options{MaxConcurrentReconciles: maxConcurrency}).
+		WithOptions(o.ForControllerRuntime()).
 		Complete(r)
 }
 

@@ -17,22 +17,21 @@ limitations under the License.
 package controller
 
 import (
+	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/crossplane-contrib/provider-helm/pkg/controller/config"
 	"github.com/crossplane-contrib/provider-helm/pkg/controller/release"
-
-	"github.com/crossplane/crossplane-runtime/pkg/logging"
 )
 
 // Setup creates all Helm controllers with the supplied logger and adds them
 // to the supplied manager.
-func Setup(mgr ctrl.Manager, l logging.Logger) error {
-	for _, setup := range []func(ctrl.Manager, logging.Logger) error{
+func Setup(mgr ctrl.Manager, o controller.Options) error {
+	for _, setup := range []func(ctrl.Manager, controller.Options) error{
 		config.Setup,
 		release.Setup,
 	} {
-		if err := setup(mgr, l); err != nil {
+		if err := setup(mgr, o); err != nil {
 			return err
 		}
 	}
